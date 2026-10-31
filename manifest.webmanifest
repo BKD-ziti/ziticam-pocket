@@ -1,0 +1,15 @@
+{
+  "name": "ZitiCam Pocket",
+  "short_name": "ZitiCam",
+  "description": "The live-face ziti, on your phone. Record on a key color, drop it over anything.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#17120e",
+  "theme_color": "#17120e",
+  "icons": [
+    { "src": "./icon-180.png", "sizes": "180x180", "type": "image/png" },
+    { "src": "./icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
