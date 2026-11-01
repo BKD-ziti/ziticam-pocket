@@ -8,7 +8,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from './GLTFLoader.js';
 import { RoomEnvironment } from './RoomEnvironment.js';
 
-const VERSION = '0.1.0';
+const VERSION = '0.1.1';
 const MP_VER = '0.10.35';   // same MediaPipe build as ZitiCam on the stream PC
 const q = new URLSearchParams(location.search);
 const MP_BASES = q.get('mp')
@@ -20,7 +20,7 @@ const DEFAULTS = {
   sauce: true, brows: false, mirror: false, flip: true,
   eyes: 1.1, mouth: 1.24, mouthLift: 0.16, eyeLift: 0, eyeSpread: 0.94,
   turn: 1.15, sway: 0.45, bounce: 2, smooth: 0.5,
-  zoom: 1, lift: 0, bg: 'blue', quality: 1080, countdown: true,
+  zoom: 1, lift: 0, bg: 'blue', quality: 1080, countdown: true, micMode: 'clean',
 };
 const LOOK_KEYS = ['sauce', 'brows', 'mirror', 'flip', 'eyes', 'mouth', 'mouthLift', 'eyeLift', 'eyeSpread', 'turn', 'sway', 'bounce', 'smooth', 'zoom', 'lift'];
 const STORE = 'zitipocket.v1';
@@ -117,6 +117,7 @@ function applyLook() {
   $('sauceBtn').setAttribute('aria-pressed', String(CFG.sauce));
   for (const b of document.querySelectorAll('[data-toggle]')) b.setAttribute('aria-pressed', String(!!CFG[b.dataset.toggle]));
   for (const b of document.querySelectorAll('#qualSeg button')) b.setAttribute('aria-pressed', String(+b.dataset.q === CFG.quality));
+  for (const b of document.querySelectorAll('#micSeg button')) b.setAttribute('aria-pressed', String(b.dataset.mic === (CFG.micMode || 'clean')));
   document.body.classList.toggle('debug', CFG.debug);
   $('dbgBtn').setAttribute('aria-pressed', String(CFG.debug));
   applyFraming();
@@ -379,35 +380,88 @@ async function startTracker() {
 }
 
 // ---------------------------------------------------------------- camera + mic
+// Audio (v0.1.1): the mic is opened fresh for every take and closed right after, so
+//  - iOS never keeps "call mode" running between takes (that made playback thin and takes inconsistent)
+//  - each take gets the same clean, unprocessed mic. "Voice" mode (Look) turns iOS call-style cleanup back on for noisy places.
+const VIDEO_C = { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } };
+const MIC = {
+  clean: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, channelCount: { ideal: 1 }, sampleRate: { ideal: 48000 } },
+  voice: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: { ideal: 1 } },
+};
+const micConstraints = () => MIC[CFG.micMode] || MIC.clean;
 let camStream = null, micStream = null;
+let micGranted = false;
+let keepMicOpen = false;   // flips on if reopening the mic looks like it asked for permission again
+function describeMic(track) {
+  if (!track) return '';
+  const s = track.getSettings ? track.getSettings() : {};
+  const yn = (v) => (v === undefined ? '?' : v ? 'on' : 'off');
+  return `${s.sampleRate ? Math.round(s.sampleRate / 100) / 10 + ' kHz' : '? kHz'} · ${s.channelCount || '?'} ch · echo ${yn(s.echoCancellation)} · noise ${yn(s.noiseSuppression)} · auto-gain ${yn(s.autoGainControl)}`;
+}
+function micLive() { return !!micStream && micStream.getAudioTracks().some((t) => t.readyState === 'live'); }
+function releaseMic(force = false) {
+  if (!micStream || (keepMicOpen && !force)) return;
+  for (const t of micStream.getTracks()) t.stop();
+  micStream = null;
+  status.mic = micGranted ? 'closed (opens when you record)' : status.mic;
+}
+async function openMic() {
+  if (micLive()) return true;
+  const t0 = performance.now();
+  try {
+    const s = await navigator.mediaDevices.getUserMedia({ audio: micConstraints(), video: false });
+    micStream = s;
+    micGranted = true;
+    status.mic = 'on';
+    status.micInfo = describeMic(s.getAudioTracks()[0]);
+    if (performance.now() - t0 > 1500) keepMicOpen = true;   // looked like a permission prompt: stop closing the mic between takes
+    // some iOS versions stop the camera when a new capture starts: bring it back
+    const vt = camStream?.getVideoTracks()[0];
+    if (!vt || vt.readyState === 'ended') await restartCamera();
+    return true;
+  } catch (e) {
+    status.mic = 'blocked (' + e.name + ')';
+    return false;
+  }
+}
 async function startCamera() {
-  const video = { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } };
-  const audio = { echoCancellation: false, noiseSuppression: true, autoGainControl: true };
   let stream;
   try {
-    stream = await navigator.mediaDevices.getUserMedia({ video, audio });
-    status.mic = 'on';
+    // one permission prompt for camera + mic, then the mic is closed until the first take
+    stream = await navigator.mediaDevices.getUserMedia({ video: VIDEO_C, audio: micConstraints() });
+    micGranted = true;
   } catch (e) {
     if (e.name === 'NotAllowedError' || e.name === 'SecurityError') {
       // maybe only the mic was refused: try camera alone
-      try { stream = await navigator.mediaDevices.getUserMedia({ video, audio: false }); status.mic = 'blocked'; }
-      catch (e2) { throw e2; }
+      stream = await navigator.mediaDevices.getUserMedia({ video: VIDEO_C, audio: false });
+      status.mic = 'blocked';
     } else {
-      stream = await navigator.mediaDevices.getUserMedia({ video, audio: false });
+      stream = await navigator.mediaDevices.getUserMedia({ video: VIDEO_C, audio: false });
       status.mic = 'unavailable';
     }
   }
-  camStream = new MediaStream(stream.getVideoTracks());
-  micStream = stream.getAudioTracks().length ? new MediaStream(stream.getAudioTracks()) : null;
-  videoEl.srcObject = camStream;
-  await videoEl.play().catch(() => {});
-  const tr = camStream.getVideoTracks()[0];
-  status.cam = `${videoEl.videoWidth}x${videoEl.videoHeight}`;
-  tr?.addEventListener('ended', () => { status.cam = 'ended'; if (document.visibilityState === 'visible') restartCamera(); });
+  attachCamera(stream.getVideoTracks());
+  const at = stream.getAudioTracks()[0];
+  if (at) { status.micInfo = describeMic(at); micStream = new MediaStream([at]); releaseMic(); }
 }
+function attachCamera(tracks) {
+  camStream = new MediaStream(tracks);
+  videoEl.srcObject = camStream;
+  videoEl.play().catch(() => {});
+  const tr = camStream.getVideoTracks()[0];
+  status.cam = `${tr?.getSettings?.().width || '?'}x${tr?.getSettings?.().height || '?'}`;
+  tr?.addEventListener('ended', () => { status.cam = 'ended'; if (document.visibilityState === 'visible' && !restarting) restartCamera(); });
+  // if opening the mic freezes the camera (some iOS versions), bring it back
+  tr?.addEventListener('mute', () => setTimeout(() => { if (tr.muted && tr.readyState === 'live' && document.visibilityState === 'visible' && !restarting && camStream?.getVideoTracks()[0] === tr) restartCamera(); }, 1500));
+}
+let restarting = false;
 async function restartCamera() {
-  try { for (const t of [...(camStream?.getTracks() || []), ...(micStream?.getTracks() || [])]) t.stop(); } catch {}
-  try { await startCamera(); } catch (e) { status.cam = 'error ' + e.name; toast('Camera stopped. Tap Start again if it does not come back.'); }
+  if (restarting) return;
+  restarting = true;
+  try { for (const t of camStream?.getTracks() || []) t.stop(); } catch {}
+  try { attachCamera((await navigator.mediaDevices.getUserMedia({ video: VIDEO_C, audio: false })).getVideoTracks()); }
+  catch (e) { status.cam = 'error ' + e.name; toast('Camera stopped. Tap Start again if it does not come back.'); }
+  restarting = false;
 }
 
 // ---------------------------------------------------------------- loop
@@ -470,6 +524,7 @@ function drawDebug() {
     `render ${status.fps.toFixed(1)} fps · camera ${status.camFps.toFixed(1)} fps\n` +
     `detect ${status.det.toFixed(1)} ms · tracker ${status.tracker}${status.trackerSrc ? ' (' + status.trackerSrc + ')' : ''}\n` +
     `camera ${status.cam} · mic ${status.mic}\n` +
+    (status.micInfo ? `mic ${CFG.micMode}: ${status.micInfo}\n` : '') +
     `output ${w}x${h} · ${BGS[CFG.bg].label} key\n` +
     `recorder ${pickMime()?.mime || 'none'}\n` +
     `face ${status.face ? 'yes' : 'no'}` + (status.rec ? `\n${status.rec}` : '') +
@@ -519,9 +574,10 @@ async function startRecording() {
   const vStream = canvas.captureStream(CFG.fps);
   const tracks = [...vStream.getVideoTracks()];
   if (micStream) for (const t of micStream.getAudioTracks()) if (t.readyState === 'live') tracks.push(t);
+  const micNote = tracks.length > 1 ? (CFG.micMode === 'voice' ? 'voice mic' : 'clean mic') : 'no sound';
   const stream = new MediaStream(tracks);
   try {
-    recorder = new MediaRecorder(stream, { mimeType: pm.mime, videoBitsPerSecond: w === 1080 ? 10_000_000 : 6_000_000, audioBitsPerSecond: 128_000 });
+    recorder = new MediaRecorder(stream, { mimeType: pm.mime, videoBitsPerSecond: w === 1080 ? 10_000_000 : 6_000_000, audioBitsPerSecond: 160_000 });
   } catch {
     recorder = new MediaRecorder(stream);
   }
@@ -532,7 +588,9 @@ async function startRecording() {
     const type = (recorder.mimeType || pm.mime).split(';')[0] || 'video/mp4';
     const blob = new Blob(chunks, { type });
     chunks = [];
-    finishTake(blob, (performance.now() - recStart) / 1000, type.includes('mp4') ? 'mp4' : 'webm');
+    releaseMic();   // back to normal audio before the playback starts
+    if (blob.size < 2000) { toast('That take came out empty. Try again, and give it a second before stopping.', 4500); return; }
+    finishTake(blob, (performance.now() - recStart) / 1000, type.includes('mp4') ? 'mp4' : 'webm', micNote);
   };
   recorder.onerror = (e) => { status.err = 'recorder: ' + (e.error?.message || e.name || 'error'); };
   recorder.start(1000);
@@ -554,13 +612,18 @@ function stopRecording() {
   try { recorder.stop(); } catch {}
 }
 async function countdownThenRecord() {
-  if (!CFG.countdown) return startRecording();
   counting = true;
+  const micReady = status.mic === 'unavailable' ? Promise.resolve(false) : openMic();   // the mic warms up during the 3-2-1
   const el = $('count');
-  el.classList.add('show');
-  for (const n of [3, 2, 1]) { el.textContent = n; await new Promise((r) => setTimeout(r, 800)); if (!counting) { el.classList.remove('show'); return; } }
-  el.classList.remove('show');
+  if (CFG.countdown) {
+    el.classList.add('show');
+    for (const n of [3, 2, 1]) { el.textContent = n; await new Promise((r) => setTimeout(r, 800)); if (!counting) { el.classList.remove('show'); releaseMic(); return; } }
+    el.classList.remove('show');
+  }
+  const ok = await micReady;
+  if (!counting) { releaseMic(); return; }
   counting = false;
+  if (!ok) toast('No mic, so this take is silent. Allow the microphone for this site to add sound.', 4500);
   startRecording();
 }
 
@@ -568,7 +631,7 @@ function stamp() {
   const d = new Date(), p = (n) => String(n).padStart(2, '0');
   return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}`;
 }
-function finishTake(blob, secs, ext) {
+function finishTake(blob, secs, ext, micNote = '') {
   if (take?.url) URL.revokeObjectURL(take.url);
   const name = `ziticam-${stamp()}-${BGS[CFG.bg].label.toLowerCase()}.${ext}`;
   take = { blob, url: URL.createObjectURL(blob), name, ext };
@@ -576,7 +639,7 @@ function finishTake(blob, secs, ext) {
   v.src = take.url;
   v.play().catch(() => {});
   const { w, h } = outSize();
-  $('reviewMeta').textContent = `${fmt(secs)} · ${(blob.size / 1e6).toFixed(1)} MB · ${w}×${h} · ${ext.toUpperCase()} on ${BGS[CFG.bg].label.toLowerCase()}`;
+  $('reviewMeta').textContent = `${fmt(secs)} · ${(blob.size / 1e6).toFixed(1)} MB · ${w}×${h} · ${ext.toUpperCase()} on ${BGS[CFG.bg].label.toLowerCase()} · ${micNote}`;
   openSheet('review');
 }
 async function shareTake() {
@@ -594,8 +657,10 @@ function downloadTake() {
 }
 function closeTake(del) {
   closeSheets();
-  const v = $('reviewVideo'); v.pause();
-  if (del && take) { v.removeAttribute('src'); v.load(); URL.revokeObjectURL(take.url); take = null; toast('Deleted.'); }
+  // fully unload the player: a paused video still holding the last take can starve the next recording
+  const v = $('reviewVideo'); v.pause(); v.removeAttribute('src'); v.load();
+  if (take) { URL.revokeObjectURL(take.url); take = null; }
+  if (del) toast('Deleted.');
 }
 
 // ---------------------------------------------------------------- wake lock + app switching
@@ -605,7 +670,8 @@ async function keepAwake() {
 }
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') {
-    if (recording) stopRecording();          // finalize the take instead of losing it
+    if (recording) stopRecording();          // finalize the take instead of losing it (the mic closes when it's written)
+    else releaseMic(true);
     counting = false;
   } else if (started) {
     keepAwake();
@@ -673,7 +739,7 @@ async function start() {
     $('rec').disabled = false;
     keepAwake();
     if (!landmarker) setStatus('Loading face tracker…');
-    if (status.mic !== 'on') toast('No mic access, so takes will be silent. Allow the microphone for this site to fix it.', 5000);
+    if (!micGranted) toast('No mic access, so takes will be silent. Allow the microphone for this site to fix it.', 5000);
     else if (!store.get('zitipocket.seenTip', false)) { toast('Hold the phone how you\'ll record, look at it, then tap Set straight.', 5200); store.set('zitipocket.seenTip', true); }
   } catch (e) {
     btn.disabled = false; btn.textContent = 'Try again';
@@ -718,6 +784,14 @@ function wire() {
       applyLook(); saveCfg();
     });
   }
+  for (const b of document.querySelectorAll('#micSeg button')) {
+    b.addEventListener('click', async () => {
+      if (recording || counting) return;
+      CFG.micMode = b.dataset.mic; applyLook(); saveCfg();
+      if (micLive()) { releaseMic(true); if (keepMicOpen) await openMic(); }   // reopen with the new setting if it's being kept open
+      toast(CFG.micMode === 'voice' ? 'Voice mic: iPhone cleanup on. Good for loud places, can sound processed.' : 'Clean mic: your real voice, no processing.');
+    });
+  }
   for (const b of document.querySelectorAll('#qualSeg button')) {
     b.addEventListener('click', () => {
       if (recording) return;
@@ -740,4 +814,4 @@ requestAnimationFrame(frame);
 if (q.get('autostart') === '1') start();
 
 // tiny hook for automated checks
-window.__zp = { status, CFG, insets, rig, renderer, scene, camera, onFace, applyLook, startRecording, stopRecording, get take() { return take; }, get landmarker() { return landmarker; }, pickMime };
+window.__zp = { status, CFG, insets, rig, renderer, scene, camera, onFace, applyLook, startRecording, stopRecording, get take() { return take; }, get landmarker() { return landmarker; }, pickMime, get micLive() { return micLive(); }, get camLive() { return camStream?.getVideoTracks()[0]?.readyState === 'live'; }, get keepMicOpen() { return keepMicOpen; } };
