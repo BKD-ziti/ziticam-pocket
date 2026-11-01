@@ -109,7 +109,7 @@ Settings save on the phone. **Reset to stream look** brings back the stream PC's
 
 ## credits
 
-- [three.js](https://threejs.org), MIT license (see `THREE_LICENSE.txt`)
+- [three.js](https://threejs.org), MIT license (see `licenses/three.js-LICENSE.txt`). That license covers three.js only.
 - [MediaPipe](https://ai.google.dev/edge/mediapipe), Apache 2.0
 - The ziti, its sauce and its basil: © BKDziti LLC
 
