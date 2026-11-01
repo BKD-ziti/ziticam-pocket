@@ -10,7 +10,7 @@ Record the live-face ziti on a key color, then drop it over anything.
 
 ### [Open ZitiCam Pocket](https://bkd-ziti.github.io/ziticam-pocket/)
 
-![version 0.1](https://img.shields.io/badge/version-0.1-e8b45a?style=flat-square)
+![version 0.1.1](https://img.shields.io/badge/version-0.1.1-e8b45a?style=flat-square)
 ![runs in Safari on iPhone](https://img.shields.io/badge/runs_in-Safari_on_iPhone-c8432b?style=flat-square)
 ![camera feed never leaves the phone](https://img.shields.io/badge/camera_feed-never_leaves_the_phone-7fbf6a?style=flat-square)
 
@@ -63,7 +63,7 @@ Need a different key? Tap the color chip: **Blue → Green → Pink**.
 | **Blue / Green / Pink** | key color behind the noodle |
 | **Sauce** | red-sauce outfit on or off |
 | **Set straight** | makes your current head pose "looking ahead" |
-| **Look** | eye and mouth size + placement, head follow, drift, talk bounce, calm, frame size + height, eyebrows, flip, mirror, countdown, 720 / 1080 |
+| **Look** | eye and mouth size + placement, head follow, drift, talk bounce, calm, frame size + height, eyebrows, flip, mirror, countdown, 720 / 1080, mic clean / voice |
 | **Stats** | frame rate, tracker speed, camera and recorder info |
 
 Settings save on the phone. **Reset to stream look** brings back the stream PC's ZitiCam tuning.
@@ -72,7 +72,8 @@ Settings save on the phone. **Reset to stream look** brings back the stream PC's
 
 - **Face tracking:** Google MediaPipe Face Landmarker 0.10.35, the same build as the stream PC. 478 face points plus a jaw-open score, every frame, on the phone's GPU.
 - **The noodle:** three.js r169 rendering `ziti.glb`, sauce and basil included. Eyes and mouth are sampled from the exact camera frame the tracker saw, so they never slide around.
-- **Recording:** the 3D canvas plus your mic go through Safari's built-in recorder to MP4 (H.264 + AAC), vertical 1080 × 1920 at 30 fps.
+- **Recording:** the 3D canvas plus your mic go through Safari's built-in recorder to MP4 (H.264 + AAC at 160 kbps), vertical 1080 × 1920 at 30 fps.
+- **Clean audio:** the mic opens only while you record, with the iPhone's call-style processing switched off, so takes capture your voice as it is. Flip **Look → Mic → Voice** if you're somewhere loud.
 - **Privacy:** your camera feed, your face and your takes stay on the phone. This site only hands your browser the files below.
 
 ## files
@@ -102,6 +103,7 @@ Settings save on the phone. **Reset to stream look** brings back the stream PC's
 ## what's next
 
 - [x] **v0.1:** record on a key color, save to Photos
+- [x] **v0.1.1:** cleaner, more consistent audio
 - [ ] works offline after the first visit
 - [ ] react mode: a clip from your camera roll plays behind the noodle while you record
 - [ ] teleprompter only you can see, never in the video
