@@ -10,7 +10,7 @@ Record the live-face ziti on a key color, then drop it over anything.
 
 ### [Open ZitiCam Pocket](https://bkd-ziti.github.io/ziticam-pocket/)
 
-![version 0.1.1](https://img.shields.io/badge/version-0.1.1-e8b45a?style=flat-square)
+![version 0.2.0](https://img.shields.io/badge/version-0.2.0-e8b45a?style=flat-square)
 ![runs in Safari on iPhone](https://img.shields.io/badge/runs_in-Safari_on_iPhone-c8432b?style=flat-square)
 ![camera feed never leaves the phone](https://img.shields.io/badge/camera_feed-never_leaves_the_phone-7fbf6a?style=flat-square)
 
@@ -63,17 +63,20 @@ Need a different key? Tap the color chip: **Blue → Green → Pink**.
 | **Blue / Green / Pink** | key color behind the noodle |
 | **Sauce** | red-sauce outfit on or off |
 | **Set straight** | makes your current head pose "looking ahead" |
-| **Look** | eye and mouth size + placement, head follow, drift, talk bounce, calm, frame size + height, eyebrows, flip, mirror, countdown, 720 / 1080, mic clean / voice |
-| **Stats** | frame rate, tracker speed, camera and recorder info |
+| **Look** | eye and mouth size + placement, head follow, drift, talk bounce, calm, frame size + height, eyebrows, flip, mirror, countdown, 720p / 1080p / 4K, 30 / 60 fps, mic clean / voice |
+| **Stats** | frame rate against its budget, tracker speed, camera, mic level and recorder info |
+| **Last take** | reopens your most recent take, including one kept from a session that closed or crashed |
 
 Settings save on the phone. **Reset to stream look** brings back the stream PC's ZitiCam tuning.
 
 ## under the hood
 
-- **Face tracking:** Google MediaPipe Face Landmarker 0.10.35, the same build as the stream PC. 478 face points plus a jaw-open score, every frame, on the phone's GPU.
-- **The noodle:** three.js r169 rendering `ziti.glb`, sauce and basil included. Eyes and mouth are sampled from the exact camera frame the tracker saw, so they never slide around.
-- **Recording:** the 3D canvas plus your mic go through Safari's built-in recorder to MP4 (H.264 + AAC at 160 kbps), vertical 1080 × 1920 at 30 fps.
-- **Clean audio:** the mic opens only while you record, with the iPhone's call-style processing switched off, so takes capture your voice as it is. Flip **Look → Mic → Voice** if you're somewhere loud.
+- **Face tracking:** Google MediaPipe Face Landmarker 0.10.35, the same build as the stream PC, running in a background worker so a slow face check never holds up a video frame. 478 face points plus a jaw-open score; each answer comes back with the exact camera frame it measured, so the eyes and mouth never slide around. Served from this site, so it works offline after the first visit.
+- **The noodle:** three.js r169 rendering `ziti.glb`, sauce and basil included. Only the noodle is anti-aliased: it's drawn sharp into its own image, sized to the box it fills on screen, then placed on the flat key color. Same look as before, far less graphics work per frame.
+- **Staying smooth:** if the phone can't hold the frame rate, the noodle is redrawn every other frame at 60 fps, then drawn a touch softer. Each step is measured and undone if it didn't help, and steps back up when there's headroom.
+- **Recording:** every drawn frame goes straight to the phone's hardware H.264 encoder with an exact timestamp ([Mediabunny](https://mediabunny.dev) writes the MP4), so takes are a true constant 30 or 60 fps. Up to 2160 × 3840 (4K). Older iPhones without that encoder fall back to Safari's built-in recorder, fed one frame per drawn frame.
+- **Takes on disk:** takes are written to the site's private storage as they record, so long 4K takes don't have to fit in memory, and a take cut short by a crash is kept.
+- **Clean audio:** the mic opens only while you record, with the iPhone's call-style processing switched off, so takes capture your voice as it is. It's recorded on the audio thread through one steady line, so drawing can never cause gaps, and a level meter in the timer shows sound is really arriving. Flip **Look → Mic → Voice** if you're somewhere loud.
 - **Privacy:** your camera feed, your face and your takes stay on the phone. This site only hands your browser the files below.
 
 ## files
@@ -82,6 +85,12 @@ Settings save on the phone. **Reset to stream look** brings back the stream PC's
 | --- | --- |
 | `index.html` | the screen: camera view, buttons, sheets |
 | `app.js` | tracking, the noodle, recording, controls |
+| `tracker-worker.js` | the face tracker, off the main thread |
+| `recorder-wc.js` | constant-frame-rate recorder (WebCodecs + Mediabunny) |
+| `audio-tap.js` | collects the mic on the audio thread for the recorder |
+| `take-writer.js` | writes takes to the site's private storage as they record |
+| `sw.js` | offline support |
+| `vendor/` | MediaPipe tasks-vision 0.10.35 and Mediabunny 1.65.2, unmodified |
 | `ziti.glb` | the 3D ziti (v2, sauce + basil) |
 | `face_landmarker.task` | MediaPipe face model |
 | `three.module.min.js`, `GLTFLoader.js`, `RoomEnvironment.js`, `BufferGeometryUtils.js` | three.js r169 |
@@ -97,6 +106,9 @@ Settings save on the phone. **Reset to stream look** brings back the stream PC's
 | `?notrack=1` | run without the face tracker |
 | `?mime=video/mp4` | force a recorder format |
 | `?mp=<url>` | load MediaPipe from another location |
+| `?track=page` | run the face tracker on the page instead of a worker |
+| `?rec=mr` | use the browser's built-in recorder |
+| `?memrec=1` | keep takes in memory instead of storage |
 
 </details>
 
@@ -104,7 +116,7 @@ Settings save on the phone. **Reset to stream look** brings back the stream PC's
 
 - [x] **v0.1:** record on a key color, save to Photos
 - [x] **v0.1.1:** cleaner, more consistent audio
-- [ ] works offline after the first visit
+- [x] **v0.2:** 4K and 60 fps, steady constant-frame-rate takes, saved to storage as you record, works offline after the first visit
 - [ ] react mode: a clip from your camera roll plays behind the noodle while you record
 - [ ] teleprompter only you can see, never in the video
 - [ ] native iPhone app: film with the back camera while the noodle reacts in the corner
@@ -112,7 +124,8 @@ Settings save on the phone. **Reset to stream look** brings back the stream PC's
 ## credits
 
 - [three.js](https://threejs.org), MIT license (see `licenses/three.js-LICENSE.txt`). That license covers three.js only.
-- [MediaPipe](https://ai.google.dev/edge/mediapipe), Apache 2.0
+- [MediaPipe](https://ai.google.dev/edge/mediapipe), Apache 2.0 (see `licenses/mediapipe-NOTICE.txt`)
+- [Mediabunny](https://mediabunny.dev), MPL-2.0 (see `licenses/mediabunny-LICENSE.txt`)
 - The ziti, its sauce and its basil: © BKDziti LLC
 
 <div align="center">

@@ -57,6 +57,9 @@
   #timer::before { content: ""; width: 9px; height: 9px; border-radius: 50%; background: var(--tomato); display: inline-block; margin-right: 8px; animation: blink 1s steps(2) infinite; }
   @keyframes blink { 50% { opacity: .2; } }
   body.recording #timer { display: inline-flex; }
+  #meter { width: 36px; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; display: inline-block; }
+  #meterFill { display: block; width: 100%; height: 100%; background: var(--basil); transform: scaleX(0); transform-origin: left; transition: transform .1s linear; }
+  [hidden] { display: none !important; }
   body.recording .hide-rec { visibility: hidden; }
 
   #status { position: fixed; left: 50%; transform: translateX(-50%); top: calc(64px + var(--safe-t)); z-index: 5;
@@ -132,9 +135,10 @@
   <div class="side left">
     <button id="bgBtn" class="chip hide-rec" aria-label="Background color"><span class="swatch" id="bgSwatch"></span><span id="bgLabel">Blue</span></button>
   </div>
-  <span id="timer" class="chip">0:00</span>
+  <span id="timer" class="chip" aria-live="off"><span id="timerText">0:00</span><span id="meter" hidden title="Mic level"><i id="meterFill"></i></span></span>
   <div class="side right">
     <button id="dbgBtn" class="chip hide-rec" aria-pressed="false" aria-label="Show stats">Stats</button>
+    <button id="takeBtn" class="chip hide-rec" hidden>Last take</button>
   </div>
 </div>
 <div id="status"></div>
@@ -170,9 +174,16 @@
   </div>
   <div class="group">Recording size</div>
   <div class="seg" id="qualSeg">
-    <button data-q="720" aria-pressed="false">720 × 1280</button>
-    <button data-q="1080" aria-pressed="true">1080 × 1920</button>
+    <button data-q="720" aria-pressed="false">720p</button>
+    <button data-q="1080" aria-pressed="true">1080p</button>
+    <button data-q="2160" aria-pressed="false">4K</button>
   </div>
+  <div class="group">Frame rate</div>
+  <div class="seg" id="fpsSeg">
+    <button data-fps="30" aria-pressed="true">30 fps</button>
+    <button data-fps="60" aria-pressed="false">60 fps</button>
+  </div>
+  <p class="sub" id="vidHint" style="margin:8px 0 0"></p>
   <div class="group">Mic</div>
   <div class="seg" id="micSeg">
     <button data-mic="clean" aria-pressed="true">Clean</button>
